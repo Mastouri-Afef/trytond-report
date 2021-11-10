@@ -77,44 +77,13 @@ class ReportFactory:
 
 class TranslateFactory:
 
-    def __init__(self, report_name, language, translation):
+    def __init__(self, report_name, translation):
         self.report_name = report_name
-        self.language = language
         self.translation = translation
-        self.cache = {}
 
     def __call__(self, text):
-        from trytond.ir.lang import get_parent_language
-        if self.language not in self.cache:
-            cache = self.cache[self.language] = {}
-            code = self.language
-            while code:
-                # Order to get empty module/custom report first
-                translations = self.translation.search([
-                    ('lang', '=', code),
-                    ('type', '=', 'report'),
-                    ('name', '=', self.report_name),
-                    ('value', '!=', ''),
-                    ('value', '!=', None),
-                    ('fuzzy', '=', False),
-                    ('res_id', '=', -1),
-                    ], order=[('module', 'DESC')])
-                for translation in translations:
-                    cache.setdefault(translation.src, translation.value)
-                code = get_parent_language(code)
-        return self.cache[self.language].get(text, text)
-
-    def set_language(self, language=None):
-        pool = Pool()
-        Config = pool.get('ir.configuration')
-        Lang = pool.get('ir.lang')
-        if isinstance(language, Lang):
-            language = language.code
-        if not language:
-            language = Config.get_language()
-        self.language = language
-
-
+        return self.translation.get_report(self.report_name, text)
+        
 class Report(URLMixin, PoolBase):
 
     @classmethod
