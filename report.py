@@ -250,20 +250,7 @@ class Report(URLMixin, PoolBase):
 
         return report_context
 
-    @classmethod
-    def _prepare_template_file(cls, report):
-        # Convert to str as value from DB is not supported by StringIO
-        report_content = (bytes(report.report_content) if report.report_content
-            else None)
-        if not report_content:
-            raise Exception('Error', 'Missing report file!')
 
-        fd, path = tempfile.mkstemp(
-            suffix=(os.extsep + report.template_extension),
-            prefix='trytond_')
-        with open(path, 'wb') as f:
-            f.write(report_content)
-        return fd, path
 
     @classmethod
     def _add_translation_hook(cls, relatorio_report, context):
@@ -277,21 +264,32 @@ class Report(URLMixin, PoolBase):
         relatorio_report.filters.insert(0, translator)
 
     @classmethod
+    def _callback_loader(cls, report, template):
+        if report.translatable:
+            pool = Pool()
+            Translation = pool.get('ir.translation')
+            translate = TranslateFactory(cls.__name__, Translation)
+            translator = Translator(lambda text: translate(text))
+            # Do not use Translator.setup to add filter at the end
+            # after set_lang evaluation
+            template.filters.append(translator)
+            if hasattr(template, 'add_directives'):
+                template.add_directives(Translator.NAMESPACE, translator)
+
+    @classmethod
     def render(cls, report, report_context):
         "calls the underlying templating engine to renders the report"
-        fd, path = cls._prepare_template_file(report)
-
-        mimetype = MIMETYPES[report.template_extension]
-        rel_report = relatorio.reporting.Report(path, mimetype,
-                ReportFactory(), relatorio.reporting.MIMETemplateLoader())
-        cls._add_translation_hook(rel_report, report_context)
-
-        data = rel_report(**report_context).render()
+        template = report.get_template_cached()
+        if template is None:
+            mimetype = MIMETYPES[report.template_extension]
+            loader = relatorio.reporting.MIMETemplateLoader()
+            klass = loader.factories[loader.get_type(mimetype)]
+            template = klass(BytesIO(report.report_content))
+            cls._callback_loader(report, template)
+            report.set_template_cached(template)
+        data = template.generate(**report_context).render()
         if hasattr(data, 'getvalue'):
             data = data.getvalue()
-        os.close(fd)
-        os.remove(path)
-
         return data
 
     @classmethod
